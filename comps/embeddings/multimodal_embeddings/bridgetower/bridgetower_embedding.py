@@ -9,7 +9,7 @@ from langchain_core.pydantic_v1 import BaseModel, Extra
 from PIL import Image
 from transformers import BridgeTowerProcessor
 
-from .bridgetower_custom import BridgeTowerForITC, BridgeTowerTextFeatureExtractor
+from .bridgetower_custom import BridgeTowerForITC, BridgeTowerTextFeatureExtractor, BridgeTowerVisionFeatureExtractor
 
 
 class BridgeTowerEmbedding(BaseModel, Embeddings):
@@ -42,6 +42,7 @@ class BridgeTowerEmbedding(BaseModel, Embeddings):
         self.TEXT_MODEL = BridgeTowerTextFeatureExtractor.from_pretrained(self.model_name).to(self.device)
         self.PROCESSOR = BridgeTowerProcessor.from_pretrained(self.model_name)
         self.MODEL = BridgeTowerForITC.from_pretrained(self.model_name).to(self.device)
+        self.VISION_MODEL = BridgeTowerVisionFeatureExtractor.from_pretrained(self.model_name).to(self.device)
 
     class Config:
         """Configuration for this pydantic object."""
@@ -77,7 +78,7 @@ class BridgeTowerEmbedding(BaseModel, Embeddings):
 
         Args:
             texts: The list of texts to embed.
-            images: The list of path-to-images to embed
+            images: The list of PIL images to embed
             batch_size: the batch size to process, default to 2
         Returns:
             List of embeddings, one for each image-text pairs.
@@ -119,4 +120,20 @@ class BridgeTowerEmbedding(BaseModel, Embeddings):
                 embeddings.append(batch_embeddings.logits[i, 2, :].detach().cpu().numpy().tolist())
             image_list = []
             text_list = []
+        return embeddings
+
+    def embed_images(self, images: list[Image]) -> List[List[float]]: # type: ignore
+        """Embed a list of images using BridgeTower.
+
+        Args:
+            texts: The list of PIL images to embed.
+        Returns:
+            List of embeddings, one for each PIL image.
+        """
+        image_list = [img.convert("RGB") for img in images]
+        encodings = self.PROCESSOR.image_processor(
+            image_list, return_tensors="pt", do_normalize=True, do_center_crop=True).to(self.device)
+        with torch.no_grad():
+            outputs = self.VISION_MODEL(**encodings)
+        embeddings = outputs.cpu().numpy().tolist()
         return embeddings
